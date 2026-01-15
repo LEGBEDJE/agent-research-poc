@@ -4,57 +4,49 @@ from pydantic_ai import Agent
 from pydantic_ai.models.groq import GroqModel
 from pydantic import BaseModel, Field
 import nest_asyncio
+
+# Indispensable pour Streamlit
 nest_asyncio.apply()
 
-# 1. Interface Streamlit
+# 1. Configuration de la page
 st.set_page_config(page_title="IA Research Agent", page_icon="🔬")
 st.title("🔬 Agent de Recherche Autonome")
-st.markdown("Ce projet utilise Pydantic-AI** et de **Llama 3** pour orchestrer des outils de recherche.")
+st.markdown("Ce projet utilise **Pydantic-AI** et **Llama 3** pour orchestrer des outils de recherche.")
 
-# Sidebar pour la sécurité
-with st.sidebar:
-    st.header("Configuration")
-    api_key = st.text_input("Clé API Groq", type="password", help="Obtenez une clé gratuite sur console.groq.com")
-
-if not api_key:
-    st.warning("Veuillez entrer votre clé API Groq pour activer l'agent.")
-    st.stop()
-
-if not api_key:
-    st.warning("Veuillez entrer votre clé API Groq pour activer l'agent.")
-    st.stop()
-else:
-    # ON NE CREE LE MODELE QUE SI LA CLE EST LA
-    try:
-        model = GroqModel('llama3-70b-8192', api_key=api_key)
-        agent = Agent(model=model, result_type=AgentOutput)
-    except Exception as e:
-        st.error(f"Erreur lors de l'initialisation du modèle : {e}")
-        st.stop()
-
-# ... la suite du code (outils et chat) ...
-# 2. Configuration du modèle et de l'Agent
-model = GroqModel('llama3-70b-8192', api_key=api_key)
-
-# On définit une sortie structurée (très apprécié des ingénieurs Senior)
+# 2. Définition des structures de données (TOUJOURS EN HAUT)
 class AgentOutput(BaseModel):
     answer: str = Field(description="La réponse finale")
     used_tools: bool = Field(description="Est-ce que des outils ont été consultés ?")
 
-agent = Agent(model=model, result_type=AgentOutput)
+# 3. Sidebar pour la clé API
+with st.sidebar:
+    st.header("Configuration")
+    api_key = st.text_input("Clé API Groq", type="password", help="Gratuit sur console.groq.com")
 
-# 3. Définition des outils (Tools) que l'IA va utiliser seule
+if not api_key:
+    st.warning("Veuillez entrer votre clé API Groq pour activer l'agent.")
+    st.stop()
+
+# 4. Initialisation de l'Agent (seulement si la clé est présente)
+try:
+    model = GroqModel('llama3-70b-8192', api_key=api_key)
+    agent = Agent(model=model, result_type=AgentOutput)
+except Exception as e:
+    st.error(f"Erreur d'initialisation : {e}")
+    st.stop()
+
+# 5. Définition des outils (Tools)
 @agent.tool
-async def search_technical_doc(topic: str) -> str:
+async def search_technical_doc(ctx, topic: str) -> str:
     """Recherche dans la base de connaissance technique interne."""
     knowledge_base = {
-        "rag": "Le RAG (Retrieval-Augmented Generation) permet d'injecter des données fraîches à un LLM.",
+        "rag": "Le RAG (Retrieval-Augmented Generation) permet d'injecter des données externes à un LLM.",
         "pydantic-ai": "C'est un framework de création d'agents typés, plus robuste que LangChain.",
         "vllm": "Un moteur de serving LLM haute performance utilisé pour la production."
     }
     return knowledge_base.get(topic.lower(), "Sujet non listé dans la documentation locale.")
 
-# 4. Gestion du Chat
+# 6. Gestion du Chat (Interface utilisateur)
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
@@ -70,13 +62,14 @@ if prompt := st.chat_input("Posez une question technique (ex: Explique moi le RA
     with st.chat_message("assistant"):
         with st.spinner("L'agent réfléchit..."):
             try:
-                # Exécution asynchrone
+                # Création d'une boucle d'événement propre pour Streamlit
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
                 result = loop.run_until_complete(agent.run(prompt))
                 
-                full_res = result.data.answer
-                st.markdown(full_res)
-                st.session_state.messages.append({"role": "assistant", "content": full_res})
+                # On affiche la réponse propre
+                response_text = result.data.answer
+                st.markdown(response_text)
+                st.session_state.messages.append({"role": "assistant", "content": response_text})
             except Exception as e:
-                st.error(f"Erreur : {e}")
+                st.error(f"Erreur lors de l'exécution : {e}")
