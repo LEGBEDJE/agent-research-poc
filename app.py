@@ -20,6 +20,19 @@ if not api_key:
     st.warning("Veuillez entrer votre clé API Groq pour activer l'agent.")
     st.stop()
 
+if not api_key:
+    st.warning("Veuillez entrer votre clé API Groq pour activer l'agent.")
+    st.stop()
+else:
+    # ON NE CREE LE MODELE QUE SI LA CLE EST LA
+    try:
+        model = GroqModel('llama3-70b-8192', api_key=api_key)
+        agent = Agent(model=model, result_type=AgentOutput)
+    except Exception as e:
+        st.error(f"Erreur lors de l'initialisation du modèle : {e}")
+        st.stop()
+
+# ... la suite du code (outils et chat) ...
 # 2. Configuration du modèle et de l'Agent
 model = GroqModel('llama3-70b-8192', api_key=api_key)
 
