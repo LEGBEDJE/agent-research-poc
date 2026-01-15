@@ -3,6 +3,8 @@ import asyncio
 from pydantic_ai import Agent
 from pydantic_ai.models.groq import GroqModel
 from pydantic import BaseModel, Field
+import nest_asyncio
+nest_asyncio.apply()
 
 # 1. Interface Streamlit
 st.set_page_config(page_title="IA Research Agent", page_icon="🔬")
