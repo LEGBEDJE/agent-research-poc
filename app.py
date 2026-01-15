@@ -1,5 +1,6 @@
 import streamlit as st
 import asyncio
+import os
 from pydantic_ai import Agent
 from pydantic_ai.models.groq import GroqModel
 from pydantic import BaseModel, Field
@@ -13,7 +14,7 @@ st.set_page_config(page_title="IA Research Agent", page_icon="🔬")
 st.title("🔬 Agent de Recherche Autonome")
 st.markdown("Ce projet utilise **Pydantic-AI** et **Llama 3** pour orchestrer des outils de recherche.")
 
-# 2. Définition des structures de données (TOUJOURS EN HAUT)
+# 2. Définition des structures de données
 class AgentOutput(BaseModel):
     answer: str = Field(description="La réponse finale")
     used_tools: bool = Field(description="Est-ce que des outils ont été consultés ?")
@@ -21,15 +22,20 @@ class AgentOutput(BaseModel):
 # 3. Sidebar pour la clé API
 with st.sidebar:
     st.header("Configuration")
-    api_key = st.text_input("Clé API Groq", type="password", help="Gratuit sur console.groq.com")
+    user_api_key = st.text_input("Clé API Groq", type="password", help="Gratuit sur console.groq.com")
 
-if not api_key:
+if not user_api_key:
     st.warning("Veuillez entrer votre clé API Groq pour activer l'agent.")
     st.stop()
 
-# 4. Initialisation de l'Agent (seulement si la clé est présente)
+# --- CORRECTIF : Configuration de l'environnement ---
+# Pydantic-AI cherche la clé dans les variables d'environnement pour Groq
+os.environ["GROQ_API_KEY"] = user_api_key
+
+# 4. Initialisation de l'Agent
 try:
-    model = GroqModel('llama3-70b-8192', api_key=api_key)
+    # On ne passe plus api_key ici, le framework va la lire dans os.environ
+    model = GroqModel('llama3-70b-8192') 
     agent = Agent(model=model, result_type=AgentOutput)
 except Exception as e:
     st.error(f"Erreur d'initialisation : {e}")
@@ -46,7 +52,7 @@ async def search_technical_doc(ctx, topic: str) -> str:
     }
     return knowledge_base.get(topic.lower(), "Sujet non listé dans la documentation locale.")
 
-# 6. Gestion du Chat (Interface utilisateur)
+# 6. Gestion du Chat
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
@@ -62,12 +68,10 @@ if prompt := st.chat_input("Posez une question technique (ex: Explique moi le RA
     with st.chat_message("assistant"):
         with st.spinner("L'agent réfléchit..."):
             try:
-                # Création d'une boucle d'événement propre pour Streamlit
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
                 result = loop.run_until_complete(agent.run(prompt))
                 
-                # On affiche la réponse propre
                 response_text = result.data.answer
                 st.markdown(response_text)
                 st.session_state.messages.append({"role": "assistant", "content": response_text})
