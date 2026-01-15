@@ -1,47 +1,38 @@
 import streamlit as st
 import asyncio
-import os
+from groq import Groq
 from pydantic_ai import Agent
 from pydantic_ai.models.groq import GroqModel
 from pydantic import BaseModel, Field
 import nest_asyncio
 
-# Indispensable pour Streamlit
 nest_asyncio.apply()
 
-# 1. Configuration de la page
 st.set_page_config(page_title="IA Research Agent", page_icon="🔬")
 st.title("🔬 Agent de Recherche Autonome")
-st.markdown("Ce projet utilise **Pydantic-AI** et **Llama 3** pour orchestrer des outils de recherche.")
 
-# 2. Définition des structures de données
+# Structure de sortie
 class AgentOutput(BaseModel):
     answer: str = Field(description="La réponse finale")
     used_tools: bool = Field(description="Est-ce que des outils ont été consultés ?")
 
-# 3. Sidebar pour la clé API
 with st.sidebar:
     st.header("Configuration")
-    user_api_key = st.text_input("Clé API Groq", type="password", help="Gratuit sur console.groq.com")
+    user_api_key = st.text_input("Clé API Groq", type="password")
 
 if not user_api_key:
-    st.warning("Veuillez entrer votre clé API Groq pour activer l'agent.")
+    st.warning("Veuillez entrer votre clé API Groq.")
     st.stop()
 
-# --- CORRECTIF : Configuration de l'environnement ---
-# Pydantic-AI cherche la clé dans les variables d'environnement pour Groq
-os.environ["GROQ_API_KEY"] = user_api_key
-
-# 4. Initialisation de l'Agent
 try:
-    # On ne passe plus api_key ici, le framework va la lire dans os.environ
-    model = GroqModel('llama3-70b-8192') 
-    agent = Agent(model=model, result_type=AgentOutput)
+    client = Groq(api_key=user_api_key)
+    model = GroqModel('llama3-70b-8192', groq_client=client)
+    # CORRECTIF : On crée l'agent sans le result_type ici
+    agent = Agent(model=model) 
 except Exception as e:
     st.error(f"Erreur d'initialisation : {e}")
     st.stop()
 
-# 5. Définition des outils (Tools)
 @agent.tool
 async def search_technical_doc(ctx, topic: str) -> str:
     """Recherche dans la base de connaissance technique interne."""
@@ -52,7 +43,6 @@ async def search_technical_doc(ctx, topic: str) -> str:
     }
     return knowledge_base.get(topic.lower(), "Sujet non listé dans la documentation locale.")
 
-# 6. Gestion du Chat
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
@@ -60,7 +50,7 @@ for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-if prompt := st.chat_input("Posez une question technique (ex: Explique moi le RAG)"):
+if prompt := st.chat_input("Explique moi le RAG..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
@@ -70,10 +60,11 @@ if prompt := st.chat_input("Posez une question technique (ex: Explique moi le RA
             try:
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
-                result = loop.run_until_complete(agent.run(prompt))
+                # CORRECTIF : On définit le type de retour ici au moment de l'exécution
+                result = loop.run_until_complete(agent.run(prompt, result_type=AgentOutput))
                 
                 response_text = result.data.answer
                 st.markdown(response_text)
                 st.session_state.messages.append({"role": "assistant", "content": response_text})
             except Exception as e:
-                st.error(f"Erreur lors de l'exécution : {e}")
+                st.error(f"Détails de l'erreur : {type(e).__name__} - {str(e)}")
