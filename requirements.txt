@@ -1,5 +1,6 @@
 streamlit
 pydantic-ai
 groq
-httpx
 nest-asyncio
+httpx
+pydantic>=2.0.0
