@@ -1,70 +1,94 @@
 import streamlit as st
 import asyncio
-from groq import Groq
+import os
+import nest_asyncio
 from pydantic_ai import Agent
 from pydantic_ai.models.groq import GroqModel
 from pydantic import BaseModel, Field
-import nest_asyncio
 
+# Indispensable pour l'exécution asynchrone dans Streamlit
 nest_asyncio.apply()
 
-st.set_page_config(page_title="IA Research Agent", page_icon="🔬")
+# --- CONFIGURATION UI ---
+st.set_page_config(page_title="AI Research Agent", page_icon="🔬", layout="centered")
+
 st.title("🔬 Agent de Recherche Autonome")
+st.markdown("""
+Cette application démontre les capacités d'un **Agent IA** à utiliser des outils externes 
+pour répondre à des questions techniques complexes.
+""")
 
-# Structure de sortie
+# --- LOGIQUE DE L'AGENT ---
+
+# Définition de la structure de sortie pour garantir la fiabilité des données
 class AgentOutput(BaseModel):
-    answer: str = Field(description="La réponse finale")
-    used_tools: bool = Field(description="Est-ce que des outils ont été consultés ?")
+    answer: str = Field(description="La réponse finale structurée")
+    used_tools: bool = Field(description="Indique si l'outil de recherche a été consulté")
 
+# Sidebar pour la sécurité (Clé API)
 with st.sidebar:
-    st.header("Configuration")
-    user_api_key = st.text_input("Clé API Groq", type="password")
+    st.header("🔑 Authentification")
+    user_api_key = st.text_input("Clé API Groq", type="password", help="Obtenez une clé gratuite sur console.groq.com")
+    st.info("Le modèle utilisé est **Llama-3.3-70b-Versatile**.")
 
 if not user_api_key:
-    st.warning("Veuillez entrer votre clé API Groq.")
+    st.warning("Veuillez entrer votre clé API Groq dans la barre latérale.")
     st.stop()
 
+# Initialisation du modèle et de l'agent
 try:
-    client = Groq(api_key=user_api_key)
-    model = GroqModel('llama3-70b-8192', groq_client=client)
-    # CORRECTIF : On crée l'agent sans le result_type ici
-    agent = Agent(model=model) 
+    os.environ['GROQ_API_KEY'] = user_api_key
+    model = GroqModel('llama-3.3-70b-versatile')
+    
+    system_prompt = """Tu es un expert en R&D IA. 
+    Pour toute question technique (RAG, Pydantic-AI, vLLM, Agents), utilise SYSTEMATIQUEMENT 
+    l'outil 'search_technical_doc' pour garantir l'exactitude des informations."""
+    
+    agent = Agent(model=model, system_prompt=system_prompt)
+
+    # Définition de l'outil de recherche (Simulated RAG)
+    @agent.tool
+    async def search_technical_doc(ctx, topic: str) -> str:
+        """Recherche des définitions techniques dans la documentation interne."""
+        knowledge_base = {
+            "rag": "RAG (Retrieval-Augmented Generation) : architecture combinant recherche vectorielle et LLM pour réduire les hallucinations.",
+            "pydantic-ai": "Framework Python de Pydantic pour bâtir des agents type-safe et robustes pour la production.",
+            "vllm": "Moteur de serving haute performance optimisé pour le déploiement de LLM (KV cache, batching).",
+            "agent": "Système autonome capable de raisonner, d'utiliser des outils et d'agir pour atteindre un objectif."
+        }
+        return knowledge_base.get(topic.lower(), f"Le sujet '{topic}' n'est pas documenté en interne.")
+
 except Exception as e:
     st.error(f"Erreur d'initialisation : {e}")
     st.stop()
 
-@agent.tool
-async def search_technical_doc(ctx, topic: str) -> str:
-    """Recherche dans la base de connaissance technique interne."""
-    knowledge_base = {
-        "rag": "Le RAG (Retrieval-Augmented Generation) permet d'injecter des données externes à un LLM.",
-        "pydantic-ai": "C'est un framework de création d'agents typés, plus robuste que LangChain.",
-        "vllm": "Un moteur de serving LLM haute performance utilisé pour la production."
-    }
-    return knowledge_base.get(topic.lower(), "Sujet non listé dans la documentation locale.")
-
+# --- INTERFACE DE CHAT ---
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
+# Affichage de l'historique
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-if prompt := st.chat_input("Explique moi le RAG..."):
+# Entrée utilisateur
+if prompt := st.chat_input("Ex: Explique-moi les avantages du vLLM"):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
     with st.chat_message("assistant"):
-        with st.spinner("L'agent réfléchit..."):
+        with st.spinner("L'agent consulte la documentation..."):
             try:
+                # Exécution asynchrone de l'agent
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
-                # CORRECTIF : On définit le type de retour ici au moment de l'exécution
-                result = loop.run_until_complete(agent.run(prompt, result_type=AgentOutput))
                 
-                response_text = result.data.answer
+                enhanced_prompt = f"Utilise tes outils pour répondre à : {prompt}"
+                result = loop.run_until_complete(agent.run(enhanced_prompt))
+                
+                response_text = str(result.output)
                 st.markdown(response_text)
                 st.session_state.messages.append({"role": "assistant", "content": response_text})
             except Exception as e:
-                st.error(f"Détails de l'erreur : {type(e).__name__} - {str(e)}")
+                st.error(f"Erreur d'exécution : {e}")
