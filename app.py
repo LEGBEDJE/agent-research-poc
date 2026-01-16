@@ -1,94 +1,98 @@
 import streamlit as st
 import asyncio
 import os
+import random
 import nest_asyncio
-from pydantic_ai import Agent
+from groq import Groq
+from pydantic_ai import Agent, RunContext
 from pydantic_ai.models.groq import GroqModel
 from pydantic import BaseModel, Field
 
-# Indispensable pour l'exécution asynchrone dans Streamlit
+# Configuration indispensable
 nest_asyncio.apply()
 
-# --- CONFIGURATION UI ---
-st.set_page_config(page_title="AI Research Agent", page_icon="🔬", layout="centered")
+st.set_page_config(page_title="Sentinel-AI Pro", layout="wide", page_icon="🛡️")
 
-st.title("🔬 Agent de Recherche Autonome")
-st.markdown("""
-Cette application démontre les capacités d'un **Agent IA** à utiliser des outils externes 
-pour répondre à des questions techniques complexes.
-""")
+# 1. STRUCTURE DE SORTIE (Doit être définie AVANT l'agent)
+class IncidentReport(BaseModel):
+    severity: str = Field(description="CRITICAL, WARNING, ou INFO")
+    diagnostic: str = Field(description="Explication technique de la panne")
+    remediation_steps: str = Field(description="Actions conseillées")
 
-# --- LOGIQUE DE L'AGENT ---
-
-# Définition de la structure de sortie pour garantir la fiabilité des données
-class AgentOutput(BaseModel):
-    answer: str = Field(description="La réponse finale structurée")
-    used_tools: bool = Field(description="Indique si l'outil de recherche a été consulté")
-
-# Sidebar pour la sécurité (Clé API)
+# 2. SIDEBAR
 with st.sidebar:
-    st.header("🔑 Authentification")
-    user_api_key = st.text_input("Clé API Groq", type="password", help="Obtenez une clé gratuite sur console.groq.com")
-    st.info("Le modèle utilisé est **Llama-3.3-70b-Versatile**.")
+    st.header("⚙️ Sentinel Control Center")
+    user_api_key = st.text_input("Groq API Key", type="password")
 
 if not user_api_key:
-    st.warning("Veuillez entrer votre clé API Groq dans la barre latérale.")
+    st.warning("Veuillez entrer votre clé API Groq.")
     st.stop()
 
-# Initialisation du modèle et de l'agent
+# 3. INITIALISATION DE L'AGENT (Correction ici)
 try:
+    # Définir la clé API en variable d'environnement pour Groq
     os.environ['GROQ_API_KEY'] = user_api_key
+    
+    # Initialiser le modèle Groq
     model = GroqModel('llama-3.3-70b-versatile')
     
-    system_prompt = """Tu es un expert en R&D IA. 
-    Pour toute question technique (RAG, Pydantic-AI, vLLM, Agents), utilise SYSTEMATIQUEMENT 
-    l'outil 'search_technical_doc' pour garantir l'exactitude des informations."""
-    
-    agent = Agent(model=model, system_prompt=system_prompt)
-
-    # Définition de l'outil de recherche (Simulated RAG)
-    @agent.tool
-    async def search_technical_doc(ctx, topic: str) -> str:
-        """Recherche des définitions techniques dans la documentation interne."""
-        knowledge_base = {
-            "rag": "RAG (Retrieval-Augmented Generation) : architecture combinant recherche vectorielle et LLM pour réduire les hallucinations.",
-            "pydantic-ai": "Framework Python de Pydantic pour bâtir des agents type-safe et robustes pour la production.",
-            "vllm": "Moteur de serving haute performance optimisé pour le déploiement de LLM (KV cache, batching).",
-            "agent": "Système autonome capable de raisonner, d'utiliser des outils et d'agir pour atteindre un objectif."
-        }
-        return knowledge_base.get(topic.lower(), f"Le sujet '{topic}' n'est pas documenté en interne.")
-
+    agent = Agent(
+        model=model, 
+        output_type=IncidentReport,  # FIX: Utiliser output_type au lieu de result_type
+        system_prompt="Tu es un agent SRE expert. Analyse les logs et utilise tes outils pour enquêter."
+    )
 except Exception as e:
     st.error(f"Erreur d'initialisation : {e}")
     st.stop()
 
-# --- INTERFACE DE CHAT ---
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+# 4. TOOLS
+@agent.tool
+async def check_database_health(ctx: RunContext[None]) -> str:
+    """Vérifie l'état réel de la base de données."""
+    status = random.choice(["ONLINE", "LATENCY_HIGH", "OFFLINE"])
+    return f"Status DB: {status} (Latence: {random.randint(10, 500)}ms)"
 
-# Affichage de l'historique
-for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
+@agent.tool
+async def get_server_metrics(ctx: RunContext[None]) -> str:
+    """Récupère l'utilisation CPU et RAM en temps réel."""
+    return f"Métriques : CPU {random.randint(10, 95)}%, RAM {random.randint(20, 90)}%"
 
-# Entrée utilisateur
-if prompt := st.chat_input("Ex: Explique-moi les avantages du vLLM"):
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.markdown(prompt)
+# 5. INTERFACE ET EXECUTION
+st.title("🛡️ Sentinel-AI Pro : Investigation Autonome")
 
-    with st.chat_message("assistant"):
-        with st.spinner("L'agent consulte la documentation..."):
-            try:
-                # Exécution asynchrone de l'agent
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
+raw_logs = """
+2024-05-20 14:10:02 ERROR service=gateway msg="504 Gateway Timeout"
+2024-05-20 14:10:05 ERROR service=api-auth msg="Connection error to database"
+"""
+
+st.subheader("📝 Logs d'incidents détectés")
+st.code(raw_logs)
+
+if st.button("Lancer l'audit intelligent"):
+    with st.spinner("L'agent enquête via ses outils..."):
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
+            prompt = f"Analyse ces logs et utilise tes outils pour un diagnostic complet : {raw_logs}"
+            
+            # FIX: On retire result_type d'ici car il est déjà dans l'agent
+            result = loop.run_until_complete(agent.run(prompt))
+            
+            st.write("DEBUG: Result received:", result)
+            st.write("DEBUG: Result output:", result.output)
+            
+            res = result.output
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("Sévérité", res.severity)
+                st.info(f"**Diagnostic :**\n{res.diagnostic}")
+            with col2:
+                st.success(f"**Plan de remédiation :**\n{res.remediation_steps}")
                 
-                enhanced_prompt = f"Utilise tes outils pour répondre à : {prompt}"
-                result = loop.run_until_complete(agent.run(enhanced_prompt))
-                
-                response_text = str(result.output)
-                st.markdown(response_text)
-                st.session_state.messages.append({"role": "assistant", "content": response_text})
-            except Exception as e:
-                st.error(f"Erreur d'exécution : {e}")
+            with st.expander("🔗 Trace d'investigation (JSON)"):
+                st.json(result.all_messages_json())
+        except Exception as e:
+            import traceback
+            st.error(f"Erreur d'exécution : {e}")
+            st.error(traceback.format_exc())
